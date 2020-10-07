@@ -1,10 +1,10 @@
 add_library(
     safe_stack
-    safe_stack.cpp
+    INTERFACE
 )
 
 target_include_directories(
     safe_stack
-    PUBLIC
+    INTERFACE
     ${PROJECT_SOURCE_DIR}/include
 )
