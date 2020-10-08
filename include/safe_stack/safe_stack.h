@@ -1,9 +1,8 @@
 #ifndef SAFE_STACK_H
 #define SAFE_STACK_H
 
-#include <cassert>
+#include <cassert> // for assert
 #include <cstdint> // for std::uintptr_t
-#include <functional>
 #include <memory>
 
 namespace safe_stack {
@@ -27,7 +26,7 @@ class Stack {
 public:
     /// \brief Constructs an empty stack.
     /// This function never fails, becaus
-    Stack() noexcept = default;
+    Stack() = default;
 
     /// \brief Constructs a copy of the stack.
     Stack(const Stack &o)

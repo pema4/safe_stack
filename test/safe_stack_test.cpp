@@ -84,7 +84,7 @@ TEST(SafeStack, PushOneElement) {
     EXPECT_EQ(42, s.top());
 }
 
-TEST(SafeStack, ExternalCorruption) {
+TEST(Corruption, FillWithZeros) {
     Stack<int> s;
     EXPECT_TRUE(s.empty());
     std::uninitialized_fill_n(reinterpret_cast<char *>(&s), sizeof(s), 0);

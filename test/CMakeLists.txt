@@ -19,7 +19,6 @@ target_include_directories(
 
 target_link_libraries(
     tests
-    safe_stack
     gtest
     gtest_main
 )
