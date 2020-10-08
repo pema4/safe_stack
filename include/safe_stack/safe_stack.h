@@ -1,22 +1,23 @@
 #ifndef SAFE_STACK_H
 #define SAFE_STACK_H
 
-#include "expected.h"
+#include <cassert>
+#include <cstdint> // for std::uintptr_t
 #include <functional>
 #include <memory>
 
 namespace safe_stack {
 
-enum class StackError { UNDERFLOW, BAD_ALLOC, INVALID_STATE };
+struct StackError {};
+
+struct StackUnderflow : public StackError {};
+
+struct StackInvalidState : public StackError {};
 
 /// \brief Safe stack class.
 /// Main design decisions (maybe they are wrong, I am not sure):
-/// 1. No exceptions is thrown by stack. Instead every method returns Expected
-/// ::Expected<R, E> value, which holds either the error or the result.
-/// Due to [[nodiscard]] attributes compiler yells at users if they don't check
-/// operation result.
-/// 2. Copy constructor and assignment are deleted, because they need to
-/// reallocate memory, and this can cause exceptions. Todo: fix this
+/// 1.
+/// 2.
 /// 3. If object is moved out to a new place, it is marked as invalid
 /// (`size` becomes bigger than `capacity). Any operation on invalid object
 /// returns ::StackError::INVALID_STATE
@@ -25,60 +26,183 @@ template <class T, class Allocator = std::allocator<T>>
 class Stack {
 public:
     /// \brief Constructs an empty stack.
-    /// This function doesn't allocate any memory, so it never fails.
+    /// This function never fails, becaus
     Stack() noexcept = default;
 
-    /// \brief Copy construction mechanism is deleted.
-    /// TOdo:
-    Stack(const Stack &);
+    /// \brief Constructs a copy of the stack.
+    Stack(const Stack &o)
+        : _capacity{o._size}, _size{o._size}, _allocator{o._allocator} {
+        set_data(allocator_traits::allocate(_allocator, _capacity));
+        std::uninitialized_copy_n(o._data, _size, _data);
+    }
 
-    Stack &operator=(const Stack &other);
+    Stack &operator=(const Stack &o) {
+        if (this == &o)
+            return *this;
+
+        set_capacity(o._capacity);
+        set_size(o._size);
+        _allocator = o._allocator;
+        set_data(allocator_traits::allocate(_allocator, _capacity));
+        std::uninitialized_copy_n(o._data, _size, _data);
+        return *this;
+    }
 
     /// \brief Constructs a new stack using move semantics.
-    /// This function doesn't allocate any memory, so it never fails.
-    Stack(Stack &&other) noexcept;
+    /// This function fails only when other object is invalid.
+    /// \exception ::InvalidStateError Argument was invalid.
+    Stack(Stack &&o) {
+        if (!o.valid())
+            throw StackInvalidState{};
+
+        set_data(std::exchange(o._data, nullptr));
+        set_capacity(std::exchange(o._capacity, 0));
+        set_size(std::exchange(o._size, 1));
+        _allocator = std::move(o._allocator);
+    }
 
     /// \brief Replaces current stack with the new stack using move semantics.
-    /// This function destroys old objects and deallocates previously allocated
-    /// memory, so it can fail (but `Stack` is not responsible for it).
-    Stack &operator=(Stack &&other);
+    /// This functions fails only
+    /// \exception ::InvalidStateError At least one operand was invalid.
+    Stack &operator=(Stack &&o) {
+        if (this == &o)
+            return *this;
 
-    ~Stack();
+        clear();
+        if (!o.valid())
+            throw StackInvalidState{};
 
-    [[nodiscard]] ExpectedVoid<StackError> push(const T &elem);
+        set_data(std::exchange(o._data, nullptr));
+        set_capacity(std::exchange(o._capacity, 0));
+        set_size(std::exchange(o._size, 1));
+        _allocator = std::move(o._allocator);
 
-    [[nodiscard]] ExpectedVoid<StackError> push(T &&elem);
+        assert(valid());
+        return *this;
+    }
+
+    ~Stack() {
+        // I can't do anything reasonable here if stack was broken
+        clear_internal();
+    }
+
+    void push(const T &elem) { return emplace(elem); }
+
+    void push(T &&elem) { return emplace(std::move(elem)); }
 
     template <class... Args>
-    [[nodiscard]] ExpectedVoid<StackError> emplace(Args &&... args);
+    void emplace(Args &&... args) {
+        if (!valid())
+            throw StackInvalidState{};
 
-    [[nodiscard]] ExpectedVoid<StackError> pop();
+        if (_size == _capacity)
+            reserve(_capacity * growth_factor + 1);
 
-    [[nodiscard]] Expected<std::reference_wrapper<T>, StackError>
-    top() noexcept;
+        allocator_traits::construct(_allocator, _data + _size,
+                                    std::forward<Args>(args)...);
+        set_size(_size + 1);
 
-    [[nodiscard]] Expected<std::reference_wrapper<const T>, StackError>
-    top() const noexcept;
+        assert(valid());
+    }
 
-    [[nodiscard]] ExpectedVoid<StackError> reserve(std::size_t new_capacity);
+    void pop() {
+        if (!valid())
+            throw StackInvalidState{};
 
-    void clear();
+        if (_size == 0)
+            throw StackUnderflow{};
+
+        set_size(_size - 1);
+        allocator_traits::destroy(_allocator, _data + _size);
+        if ((double)_size / _capacity < shrink_factor)
+            reserve(_size);
+
+        assert(valid());
+    }
+
+    T &top() {
+        if (!valid())
+            throw StackInvalidState{};
+
+        if (_size == 0)
+            throw StackUnderflow{};
+
+        assert(valid());
+        return _data[_size - 1];
+    }
+
+    const T &top() const noexcept { return top(); };
+
+    /// \brief Allocates memory to store at least `new_capacity` elements
+    /// without reallocation This function may fail in any of these cases:
+    ///
+    void reserve(std::size_t new_capacity) {
+        if (!valid())
+            throw StackInvalidState{};
+
+        if (new_capacity == 0)
+            return clear_internal();
+
+        auto new_size = std::min(_capacity, _size);
+        auto new_data =
+            allocator_traits::allocate(_allocator, new_capacity, _data);
+        if (_data != nullptr) {
+            std::uninitialized_move_n(_data, new_size, new_data);
+            std::destroy_n(_data, _size);
+            allocator_traits::deallocate(_allocator, _data, _capacity);
+        }
+        set_capacity(new_capacity);
+        set_size(new_size);
+        set_data(new_data);
+        assert(valid());
+    }
+
+    /// \brief Returns the stack to initial empty state.
+    ///
+    /// This function may fail in any of these cases:
+    /// 1. Internal representation was corrupted;
+    /// 2. Elements' destructors throw exception;
+    /// 3. Deallocation throws exception (somehow).
+    /// In other scenarios function should not fail.
+    void clear() {
+        if (!valid())
+            throw StackInvalidState{};
+
+        clear_internal();
+        assert(valid());
+    }
 
     /// \brief Returns a number of elements in the stack.
     /// \return a number of elements in the stack.
-    inline std::size_t size() const noexcept { return _size; };
+    std::size_t size() const {
+        if (!valid())
+            throw StackInvalidState{};
+
+        assert(valid());
+        return _size;
+    };
 
     /// \brief Checks if the stack is empty.
     /// Stack is empty when it's size is 0.
     /// \return if the stack is empty
-    inline bool empty() const noexcept { return _size == 0; };
+    inline bool empty() const {
+        if (!valid())
+            throw StackInvalidState{};
+
+        assert(valid());
+        return _size == 0;
+    };
 
     /// \brief Checks if the stack' internal representation is valid.
     /// Stack is valid if all these conditions holds:
     /// 1. \f$size \le capacity\f$
     /// 2. \f$capacity = 0 \Leftrightarrow data = \text{nullptr}\f$
     /// \return if the stack is valid.
-    bool is_valid() const;
+    inline bool valid() const {
+        return _checksum == calculate_checksum() && _size <= _capacity &&
+               ((_capacity == 0 && _data == nullptr) ||
+                (_capacity != 0 && _data != nullptr));
+    }
 
 private:
     using allocator_traits = std::allocator_traits<Allocator>;
@@ -90,151 +214,41 @@ private:
     std::size_t _capacity{0};
     std::size_t _size{0};
     Allocator _allocator;
-};
+    unsigned long long _checksum{calculate_checksum()};
 
-template <class T, class A>
-Stack<T, A>::Stack(const Stack &o)
-    : _capacity{o._size}, _size{o._size}, _allocator{o._allocator} {
-    _data = allocator_traits::allocate(_allocator, _capacity);
-    std::uninitialized_copy_n(o._data, _size, _data);
-}
-
-template <class T, class A>
-Stack<T, A> &Stack<T, A>::operator=(const Stack &o) {
-    if (this == &o)
-        return *this;
-
-    _capacity = o._capacity;
-    _size = o._size;
-    _allocator = o._allocator;
-    _data = allocator_traits::allocate(_allocator, _capacity);
-    std::uninitialized_copy_n(o._data, _size, _data);
-    return *this;
-}
-
-template <class T, class A>
-Stack<T, A>::Stack(Stack &&o) noexcept
-    : _data{std::exchange(o._data, nullptr)}, _capacity{std::exchange(
-                                                  o._capacity, 0)},
-      _size{std::exchange(o._size, 1)}, _allocator{o._allocator} {}
-
-template <class T, class A>
-Stack<T, A> &Stack<T, A>::operator=(Stack &&o) {
-    if (this == &o)
-        return *this;
-
-    // I guess I need to deallocate previously taken memory there
-    clear();
-    _data = std::exchange(o._data, nullptr);
-    _capacity = std::exchange(o._capacity, 0);
-    _size = std::exchange(o._size, 0);
-    _allocator = std::move(o._allocator);
-    return *this;
-}
-
-template <class T, class A>
-[[nodiscard]] ExpectedVoid<StackError> Stack<T, A>::push(const T &elem) {
-    return emplace(elem);
-}
-
-template <class T, class A>
-[[nodiscard]] ExpectedVoid<StackError> Stack<T, A>::push(T &&elem) {
-    return emplace(std::move(elem));
-}
-
-template <class T, class A>
-template <class... Args>
-[[nodiscard]] ExpectedVoid<StackError> Stack<T, A>::emplace(Args &&... args) {
-    if (!is_valid())
-        return StackError::INVALID_STATE;
-    if (_size == _capacity) {
-        auto res = reserve(_capacity * growth_factor + 1);
-        if (res.has_error())
-            return res;
-    }
-    allocator_traits::construct(_allocator, _data + _size,
-                                std::forward<Args>(args)...);
-    _size += 1;
-    return {};
-}
-
-template <class T, class A>
-[[nodiscard]] ExpectedVoid<StackError> Stack<T, A>::pop() {
-    if (!is_valid())
-        return StackError::INVALID_STATE;
-    if (_size == 0 || _data == nullptr)
-        return StackError::UNDERFLOW;
-    _size -= 1;
-    allocator_traits::destroy(_allocator, _data + _size);
-    if ((double)_size / _capacity < shrink_factor) {
-        auto res = reserve(_size);
-        if (res.has_error())
-            return res;
-    }
-    return {};
-}
-
-template <class T, class A>
-[[nodiscard]] Expected<std::reference_wrapper<T>, StackError>
-Stack<T, A>::top() noexcept {
-    if (!is_valid())
-        return StackError::INVALID_STATE;
-    if (_size == 0)
-        return StackError::UNDERFLOW;
-    return std::ref(_data[_size - 1]);
-}
-
-template <class T, class A>
-[[nodiscard]] Expected<std::reference_wrapper<const T>, StackError>
-Stack<T, A>::top() const noexcept {
-    if (!is_valid())
-        return StackError::INVALID_STATE;
-    auto top_res = top();
-    if (top_res.is_error())
-        return top_res;
-    return std::cref(top_res.result());
-};
-
-template <class T, class A>
-[[nodiscard]] ExpectedVoid<StackError>
-Stack<T, A>::reserve(std::size_t new_capacity) {
-    if (!is_valid())
-        return StackError::INVALID_STATE;
-    try {
-        auto new_data =
-            allocator_traits::allocate(_allocator, new_capacity, _data);
-        if (_data != nullptr) {
-            std::uninitialized_move_n(_data, _capacity, new_data);
-            std::destroy_n(_data, _size);
-            allocator_traits::deallocate(_allocator, _data, _capacity);
-        }
-        _capacity = new_capacity;
-        _data = new_data;
-    } catch (std::bad_alloc &ex) {
-        return StackError::BAD_ALLOC;
-    }
-    return {};
-}
-
-template <class T, class A>
-void Stack<T, A>::clear() {
-    if (is_valid()) {
+    void clear_internal() {
         std::destroy_n(_data, _size);
         allocator_traits::deallocate(_allocator, _data, _capacity);
-        _data = nullptr;
+        set_data(nullptr);
+        set_capacity(0);
+        set_size(0);
+        assert(valid());
     }
-}
 
-template <class T, class A>
-Stack<T, A>::~Stack() {
-    clear();
-}
+    inline void set_data(const decltype(_data) data) {
+        _data = data;
+        _checksum = calculate_checksum();
+    }
 
-template <class T, class A>
-bool Stack<T, A>::is_valid() const {
-    return _size <= _capacity && ((_capacity == 0 && _data == nullptr) ||
-                                  (_capacity != 0 && _data != nullptr));
-}
+    inline void set_capacity(const decltype(_capacity) capacity) {
+        _capacity = capacity;
+        _checksum = calculate_checksum();
+    }
+
+    inline void set_size(const decltype(_size) size) {
+        _size = size;
+        _checksum = calculate_checksum();
+    }
+
+    inline unsigned long long calculate_checksum() const {
+        using Ret = decltype(calculate_checksum());
+        Ret res = 1;
+        res = 31 * res + reinterpret_cast<std::uintptr_t>(_data);
+        res = 31 * res + _capacity;
+        res = 31 * res + _size;
+        return res;
+    }
+};
 
 } // namespace safe_stack
 

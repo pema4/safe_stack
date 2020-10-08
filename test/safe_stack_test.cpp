@@ -1,30 +1,33 @@
 #include "safe_stack/safe_stack.h"
 #include "gtest/gtest.h"
+#include <iostream>
+#include <memory>
 
 using namespace safe_stack;
 
-TEST(SafeStack, ConstructEmpty) {
+TEST(Construction, Default) {
     Stack<int> s;
     EXPECT_TRUE(s.empty());
-    EXPECT_TRUE(s.pop());
-    EXPECT_TRUE(s.top());
+    EXPECT_THROW(s.pop(), StackUnderflow);
+    EXPECT_THROW(s.top(), StackUnderflow);
+    EXPECT_TRUE(s.valid());
 }
 
-TEST(SafeStack, ConstructWithCopy) {
+TEST(Construction, CopyConstructor) {
     Stack<int> x;
     (void)x.push(42);
     Stack<int> y{x};
 
-    // chech if the new stack also has 42.
+    // check if the new stack also has 42.
     EXPECT_EQ(1, y.size());
-    EXPECT_EQ(42, y.top().result());
+    EXPECT_EQ(42, y.top());
 
     // old stack stays valid.
-    EXPECT_FALSE(x.pop());
+    x.pop();
     EXPECT_TRUE(x.empty());
 }
 
-TEST(SafeStack, CopyAssignment) {
+TEST(Construction, CopyAssignment) {
     Stack<int> x;
     (void)x.push(42);
     Stack<int> y;
@@ -33,27 +36,27 @@ TEST(SafeStack, CopyAssignment) {
 
     // check if the new stack has 42.
     EXPECT_EQ(1, y.size());
-    EXPECT_EQ(42, y.top().result());
+    EXPECT_EQ(42, y.top());
 
     // old stack stays valid.
-    EXPECT_FALSE(x.pop());
+    x.pop();
     EXPECT_TRUE(x.empty());
 }
 
-TEST(SafeStack, ConstructWithMove) {
+TEST(Construction, MoveConstructor) {
     Stack<int> x;
     (void)x.push(42);
     Stack<int> y{std::move(x)};
 
-    // chech if the new stack also has 42.
+    // check if the new stack also has 42.
     EXPECT_EQ(1, y.size());
-    EXPECT_EQ(42, y.top().result());
+    EXPECT_EQ(42, y.top());
 
     // check if the old stack is invalid.
-    EXPECT_TRUE(x.pop());
+    EXPECT_THROW(x.empty(), StackInvalidState);
 }
 
-TEST(SafeStack, MoveAssignment) {
+TEST(Construction, MoveAssignment) {
     Stack<int> s;
     (void)s.push(42);
     Stack<int> ss;
@@ -62,10 +65,10 @@ TEST(SafeStack, MoveAssignment) {
 
     // check if the new stack has 42.
     EXPECT_EQ(1, ss.size());
-    EXPECT_EQ(42, ss.top().result());
+    EXPECT_EQ(42, ss.top());
 
     // check if the old stack is invalid.
-    EXPECT_TRUE(s.top());
+    EXPECT_THROW(s.top(), StackInvalidState);
 }
 
 TEST(SafeStack, PopEmpty) {
@@ -76,9 +79,14 @@ TEST(SafeStack, PopEmpty) {
 
 TEST(SafeStack, PushOneElement) {
     Stack<int> s;
-    EXPECT_FALSE(s.push(42));
+    s.push(42);
     EXPECT_EQ(1, s.size());
-    auto res = s.top();
-    EXPECT_FALSE(res);
-    EXPECT_EQ(42, res.result());
+    EXPECT_EQ(42, s.top());
+}
+
+TEST(SafeStack, ExternalCorruption) {
+    Stack<int> s;
+    EXPECT_TRUE(s.empty());
+    std::uninitialized_fill_n(reinterpret_cast<char *>(&s), sizeof(s), 0);
+    ASSERT_THROW(s.size(), StackInvalidState);
 }
