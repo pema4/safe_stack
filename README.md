@@ -3,6 +3,9 @@
 
 **This is NOT a final version, I will add more documentation, tests and checks**
 
+Not done yet:
+* debug dumps
+
 ## How to build
 
 I used Ubuntu 20.04 within WSL
