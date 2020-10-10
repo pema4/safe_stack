@@ -27,7 +27,7 @@ class Stack {
 public:
     /// \brief Constructs an empty stack.
     /// This function never fails.
-    Stack() noexcept = default;
+    Stack() noexcept;
 
     /// \brief Constructs a copy of the stack.
     /// \exception ::InvalidStateError Argument was invalid.
@@ -101,7 +101,7 @@ private:
     std::size_t _capacity{0};
     std::size_t _size{0};
     Allocator _allocator;
-    unsigned long long _checksum{calculate_checksum()};
+    unsigned long long _checksum{0};
 
     void clear_internal();
 
@@ -113,6 +113,11 @@ private:
 
     inline unsigned long long calculate_checksum() const;
 };
+
+template <class T, class A>
+Stack<T, A>::Stack() noexcept {
+    _checksum = calculate_checksum();
+}
 
 template <class T, class A>
 Stack<T, A>::Stack(const Stack &o)
@@ -164,13 +169,19 @@ Stack<T, A> &Stack<T, A>::operator=(Stack &&o) {
 }
 
 template <class T, class A>
-Stack<T, A>::~Stack() { clear_internal(); }
+Stack<T, A>::~Stack() {
+    clear_internal();
+}
 
 template <class T, class A>
-void Stack<T, A>::push(const T &elem) { return emplace(elem); }
+void Stack<T, A>::push(const T &elem) {
+    return emplace(elem);
+}
 
 template <class T, class A>
-void Stack<T, A>::push(T &&elem) { return emplace(std::move(elem)); }
+void Stack<T, A>::push(T &&elem) {
+    return emplace(std::move(elem));
+}
 
 template <class T, class A>
 template <class... Args>
@@ -217,7 +228,9 @@ T &Stack<T, A>::top() {
 }
 
 template <class T, class A>
-const T &Stack<T, A>::top() const { return top(); };
+const T &Stack<T, A>::top() const {
+    return top();
+};
 
 template <class T, class A>
 void Stack<T, A>::reserve(std::size_t new_capacity) {
