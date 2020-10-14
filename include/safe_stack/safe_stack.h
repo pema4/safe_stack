@@ -3,6 +3,7 @@
 
 #include <cassert> // for assert
 #include <cstdint> // for std::uintptr_t
+#include <iostream>
 #include <memory>
 
 namespace safe_stack {
@@ -91,38 +92,50 @@ public:
     /// \return if the stack is valid.
     inline bool valid() const;
 
+    template<class T2, class A2>
+    friend std::ostream &operator <<(std::ostream &out, const Stack<T2, A2> &stack);
+
 private:
     using allocator_traits = std::allocator_traits<Allocator>;
 
-    const double growth_factor = 2;
-    const double shrink_factor = 0.4;
+    static constexpr double growth_factor = 2;
+    static constexpr double shrink_factor = 0.4;
+    static constexpr unsigned long long canary_value = 0xDEADBEEFBADF00Dul;
 
-    T *_data{nullptr};
+    decltype(canary_value) start_canary{canary_value};
+    T *_data{nullptr}; // todo: add guards to data
     std::size_t _capacity{0};
     std::size_t _size{0};
     Allocator _allocator;
-    unsigned long long _checksum{0};
+    decltype(canary_value) end_canary{canary_value};
 
     void clear_internal();
 
-    inline void set_data(const decltype(_data) data);
-
-    inline void set_capacity(const decltype(_capacity) capacity);
-
-    inline void set_size(const decltype(_size) size);
-
-    inline unsigned long long calculate_checksum() const;
+    void validate() const;
 };
 
-template <class T, class A>
-Stack<T, A>::Stack() noexcept {
-    _checksum = calculate_checksum();
+template<class T, class A>
+std::ostream &operator <<(std::ostream &out, const Stack<T, A> &stack) {
+    out << "Stack capacity: " << stack._capacity << " size: " << stack._size << " {";
+    for (auto i = 0u; i < stack._capacity; ++i) {
+        out << "  [" << i << "] = ";
+        if (i < stack._size)
+            out << stack._data[i];
+        else
+            out << "GARBAGE";
+        out << "\n";
+    }
+    return out;
 }
+
+template <class T, class A>
+Stack<T, A>::Stack() noexcept = default;
 
 template <class T, class A>
 Stack<T, A>::Stack(const Stack &o)
     : _capacity{o._size}, _size{o._size}, _allocator{o._allocator} {
-    set_data(allocator_traits::allocate(_allocator, _capacity));
+    o.validate();
+    _data = allocator_traits::allocate(_allocator, _capacity);
     std::uninitialized_copy_n(o._data, _size, _data);
 }
 
@@ -131,22 +144,24 @@ Stack<T, A> &Stack<T, A>::operator=(const Stack &o) {
     if (this == &o)
         return *this;
 
-    set_capacity(o._capacity);
-    set_size(o._size);
+    validate();
+    o.validate();
+
+    _capacity = o._capacity;
+    _size = o._size;
     _allocator = o._allocator;
-    set_data(allocator_traits::allocate(_allocator, _capacity));
+    _data = allocator_traits::allocate(_allocator, _capacity);
     std::uninitialized_copy_n(o._data, _size, _data);
     return *this;
 }
 
 template <class T, class A>
 Stack<T, A>::Stack(Stack &&o) {
-    if (!o.valid())
-        throw StackInvalidState{};
+    o.validate();
 
-    set_data(std::exchange(o._data, nullptr));
-    set_capacity(std::exchange(o._capacity, 0));
-    set_size(std::exchange(o._size, 1));
+    _data = std::exchange(o._data, nullptr);
+    _capacity = std::exchange(o._capacity, 0);
+    _size = std::exchange(o._size, 1);
     _allocator = std::move(o._allocator);
 }
 
@@ -155,22 +170,23 @@ Stack<T, A> &Stack<T, A>::operator=(Stack &&o) {
     if (this == &o)
         return *this;
 
+    validate();
+    o.validate();
     clear();
-    if (!o.valid())
-        throw StackInvalidState{};
 
-    set_data(std::exchange(o._data, nullptr));
-    set_capacity(std::exchange(o._capacity, 0));
-    set_size(std::exchange(o._size, 1));
+    _data = std::exchange(o._data, nullptr);
+    _capacity = std::exchange(o._capacity, 0);
+    _size = std::exchange(o._size, 1);
     _allocator = std::move(o._allocator);
 
-    assert(valid());
+    validate();
     return *this;
 }
 
 template <class T, class A>
 Stack<T, A>::~Stack() {
-    clear_internal();
+    if (valid())
+        clear_internal();
 }
 
 template <class T, class A>
@@ -186,44 +202,38 @@ void Stack<T, A>::push(T &&elem) {
 template <class T, class A>
 template <class... Args>
 void Stack<T, A>::emplace(Args &&... args) {
-    if (!valid())
-        throw StackInvalidState{};
+    validate();
 
     if (_size == _capacity)
         reserve(_capacity * growth_factor + 1);
 
     allocator_traits::construct(_allocator, _data + _size,
                                 std::forward<Args>(args)...);
-    set_size(_size + 1);
+    _size = _size + 1;
 
-    assert(valid());
+    validate();
 }
 
 template <class T, class A>
 void Stack<T, A>::pop() {
-    if (!valid())
-        throw StackInvalidState{};
-
+    validate();
     if (_size == 0)
         throw StackUnderflow{};
 
-    set_size(_size - 1);
+    _size = _size - 1;
     allocator_traits::destroy(_allocator, _data + _size);
     if ((double)_size / _capacity < shrink_factor)
         reserve(_size);
 
-    assert(valid());
+    validate();
 }
 
 template <class T, class A>
 T &Stack<T, A>::top() {
-    if (!valid())
-        throw StackInvalidState{};
-
+    validate();
     if (_size == 0)
         throw StackUnderflow{};
 
-    assert(valid());
     return _data[_size - 1];
 }
 
@@ -234,9 +244,7 @@ const T &Stack<T, A>::top() const {
 
 template <class T, class A>
 void Stack<T, A>::reserve(std::size_t new_capacity) {
-    if (!valid())
-        throw StackInvalidState{};
-
+    validate();
     if (new_capacity == 0)
         return clear_internal();
 
@@ -247,82 +255,56 @@ void Stack<T, A>::reserve(std::size_t new_capacity) {
         std::destroy_n(_data, _size);
         allocator_traits::deallocate(_allocator, _data, _capacity);
     }
-    set_capacity(new_capacity);
-    set_size(new_size);
-    set_data(new_data);
-    assert(valid());
+    _capacity = new_capacity;
+    _size = new_size;
+    _data = new_data;
+    validate();
 }
 
 template <class T, class A>
 void Stack<T, A>::clear() {
-    if (!valid())
-        throw StackInvalidState{};
-
+    validate();
     clear_internal();
-    assert(valid());
+    validate();
 }
 
 template <class T, class A>
 std::size_t Stack<T, A>::size() const {
-    if (!valid())
-        throw StackInvalidState{};
-
-    assert(valid());
+    validate();
     return _size;
 };
 
 template <class T, class A>
 inline bool Stack<T, A>::empty() const {
-    if (!valid())
-        throw StackInvalidState{};
-
-    assert(valid());
-    return _size == 0;
+    return size() == 0;
 };
 
 template <class T, class A>
 inline bool Stack<T, A>::valid() const {
-    return _checksum == calculate_checksum() && _size <= _capacity &&
+    return start_canary == canary_value && end_canary == canary_value &&
+           _size <= _capacity &&
            ((_capacity == 0 && _data == nullptr) ||
             (_capacity != 0 && _data != nullptr));
 }
 
 template <class T, class A>
 void Stack<T, A>::clear_internal() {
-    std::destroy_n(_data, _size);
-    allocator_traits::deallocate(_allocator, _data, _capacity);
-    set_data(nullptr);
-    set_capacity(0);
-    set_size(0);
-    assert(valid());
+    if (_data != nullptr) {
+        std::destroy_n(_data, _size);
+        allocator_traits::deallocate(_allocator, _data, _capacity);
+        _data = nullptr;
+        _capacity = 0;
+        _size = 0; // stack becomes invalid if size > capacity
+    }
+    validate();
 }
 
 template <class T, class A>
-inline void Stack<T, A>::set_data(const decltype(_data) data) {
-    _data = data;
-    _checksum = calculate_checksum();
-}
-
-template <class T, class A>
-inline void Stack<T, A>::set_capacity(const decltype(_capacity) capacity) {
-    _capacity = capacity;
-    _checksum = calculate_checksum();
-}
-
-template <class T, class A>
-inline void Stack<T, A>::set_size(const decltype(_size) size) {
-    _size = size;
-    _checksum = calculate_checksum();
-}
-
-template <class T, class A>
-inline unsigned long long Stack<T, A>::calculate_checksum() const {
-    using Ret = decltype(calculate_checksum());
-    Ret res = 1;
-    res = 31 * res + reinterpret_cast<std::uintptr_t>(_data);
-    res = 31 * res + _capacity;
-    res = 31 * res + _size;
-    return res;
+inline void Stack<T, A>::validate() const {
+    if (!valid()) {
+        std::cerr << *this;
+        throw StackInvalidState{};
+    }
 }
 
 } // namespace safe_stack
