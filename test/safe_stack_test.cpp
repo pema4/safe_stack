@@ -15,7 +15,7 @@ TEST(Construction, Default) {
 
 TEST(Construction, CopyConstructor) {
     Stack<int> x;
-    (void)x.push(42);
+    x.push(42);
     Stack<int> y{x};
 
     // check if the new stack also has 42.
@@ -29,9 +29,9 @@ TEST(Construction, CopyConstructor) {
 
 TEST(Construction, CopyAssignment) {
     Stack<int> x;
-    (void)x.push(42);
+    x.push(42);
     Stack<int> y;
-    (void)y.push(13);
+    y.push(13);
     y = x;
 
     // check if the new stack has 42.
@@ -45,7 +45,7 @@ TEST(Construction, CopyAssignment) {
 
 TEST(Construction, MoveConstructor) {
     Stack<int> x;
-    (void)x.push(42);
+    x.push(42);
     Stack<int> y{std::move(x)};
 
     // check if the new stack also has 42.
@@ -58,9 +58,9 @@ TEST(Construction, MoveConstructor) {
 
 TEST(Construction, MoveAssignment) {
     Stack<int> s;
-    (void)s.push(42);
+    s.push(42);
     Stack<int> ss;
-    (void)ss.push(13);
+    ss.push(13);
     ss = std::move(s);
 
     // check if the new stack has 42.
@@ -88,5 +88,24 @@ TEST(Corruption, FillWithZeros) {
     Stack<int> s;
     EXPECT_TRUE(s.empty());
     std::uninitialized_fill_n(reinterpret_cast<char *>(&s), sizeof(s), 0);
+    ASSERT_THROW(s.size(), StackInvalidState);
+}
+
+class ExecutionChamber : public testing::Test {
+protected:
+    int left[1];
+    Stack<int> s;
+    int right[1];
+};
+
+TEST_F(ExecutionChamber, FirstCanary) {
+    EXPECT_TRUE(s.empty());
+    *(left + 2) = 42;
+    ASSERT_THROW(s.size(), StackInvalidState);
+}
+
+TEST_F(ExecutionChamber, SecondCanary) {
+    EXPECT_TRUE(s.empty());
+    *(right - 2) = 42;
     ASSERT_THROW(s.size(), StackInvalidState);
 }

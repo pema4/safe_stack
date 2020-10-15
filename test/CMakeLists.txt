@@ -8,6 +8,7 @@ add_subdirectory(
 add_executable(
     tests
     safe_stack_test.cpp
+    cache_test.cpp
 )
 
 target_include_directories(
