@@ -120,21 +120,6 @@ private:
 };
 
 template <class T, class A>
-std::ostream &operator<<(std::ostream &out, const Stack<T, A> &stack) {
-    out << "Stack capacity: " << stack._capacity << " size: " << stack._size
-        << " {";
-    for (auto i = 0u; i < stack._capacity; ++i) {
-        out << "  [" << i << "] = ";
-        if (i < stack._size)
-            out << stack._data[i];
-        else
-            out << "GARBAGE";
-        out << "\n";
-    }
-    return out;
-}
-
-template <class T, class A>
 Stack<T, A>::Stack() noexcept {
     _cache = compute_cache();
     validate();
@@ -339,6 +324,23 @@ CacheType Stack<T, A>::compute_cache() const {
     auto result = cache(*this);
     _cache = old_cache;
     return result;
+}
+
+
+template <class T, class A>
+std::ostream &operator<<(std::ostream &out, const Stack<T, A> &stack) {
+    out << "Stack capacity: " << stack._capacity << " size: " << stack._size
+        << " cache: " << stack._cache << " {" << "\n";
+    for (auto i = 0u; i < stack._capacity; ++i) {
+        out << "  [" << i << "] = ";
+        if (i < stack._size)
+            out << stack._data[i];
+        else
+            out << "GARBAGE";
+        out << ",\n";
+    }
+    out << "}" << std::endl;
+    return out;
 }
 
 } // namespace safe_stack
