@@ -99,13 +99,18 @@ protected:
 };
 
 TEST_F(ExecutionChamber, FirstCanary) {
-    EXPECT_TRUE(s.empty());
     *(left + 2) = 42;
     ASSERT_THROW(s.size(), StackInvalidState);
 }
 
 TEST_F(ExecutionChamber, SecondCanary) {
-    EXPECT_TRUE(s.empty());
     *(right - 2) = 42;
     ASSERT_THROW(s.size(), StackInvalidState);
+}
+
+TEST_F(ExecutionChamber, CorruptMiddle) {
+    *(left + 4) = ~(*(left + 4));
+    EXPECT_THROW(s.size(), StackInvalidState);
+    *(left + 4) = ~(*(left + 4));
+    EXPECT_EQ(0, s.size());
 }
