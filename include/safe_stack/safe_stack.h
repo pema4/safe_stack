@@ -1,7 +1,7 @@
 #ifndef SAFE_STACK_H
 #define SAFE_STACK_H
 
-#include "safe_stack/cache.h"
+#include "safe_stack/hash.h"
 #include <cassert> // for assert
 #include <cstdint> // for std::uintptr_t
 #include <iostream>
@@ -9,21 +9,24 @@
 
 namespace safe_stack {
 
+/// \brief Thrown when something went wrong.
 struct StackError {};
 
+/// \brief Thrown when stack doesn't have enough elements.
 struct StackUnderflow : public StackError {};
 
+/// \brief Thrown when stack was in some incorrect state.
 struct StackInvalidState : public StackError {};
 
 /// \brief Safe stack class.
 /// Main design decisions:
 /// 1. Every operation can throw ::StackError.
+/// 2. Stack has canaries before and after it's fields.
 /// 2. Stack calculates checksum of its fields and checks it before every
 /// operation.
 /// 3. If object is moved out to a new place, it is marked as invalid
 /// (`size` becomes bigger than `capacity`). Any operation on invalid object
 /// throws ::StackInvalidState
-///
 template <class T, class Allocator = std::allocator<T>>
 class Stack {
 public:
@@ -50,8 +53,11 @@ public:
     /// \brief Stack destructor
     ~Stack();
 
+    /// \brief Pushes element to the end of the stack
+    /// \exception ::InvalidStateError The stack was invalid
     void push(const T &elem);
 
+    /// \brief
     void push(T &&elem);
 
     template <class... Args>
@@ -88,11 +94,14 @@ public:
 
     /// \brief Checks if the stack' internal representation is valid.
     /// Stack is valid if all these conditions holds:
+    /// 1. All canaries are correct
+    /// 2. Hash is correct
     /// 1. \f$size \le capacity\f$
     /// 2. \f$capacity = 0 \Leftrightarrow data = \text{nullptr}\f$
     /// \return if the stack is valid.
     inline bool valid() const;
 
+    /// \brief Helper function to print the stack's internal representation
     template <class T2, class A2>
     friend std::ostream &operator<<(std::ostream &out,
                                     const Stack<T2, A2> &stack);
@@ -107,7 +116,7 @@ private:
     decltype(canary_value) start_canary{canary_value};
     T *_data{nullptr}; // todo: add guards to data
     std::size_t _capacity{0};
-    mutable CacheType _cache{0};
+    mutable HashType _hash{0};
     std::size_t _size{0};
     Allocator _allocator;
     decltype(canary_value) end_canary{canary_value};
@@ -116,12 +125,13 @@ private:
 
     void validate() const;
 
-    CacheType compute_cache() const;
+    HashType compute_hash() const;
 };
 
 template <class T, class A>
 Stack<T, A>::Stack() noexcept {
-    _cache = compute_cache();
+    _hash = compute_hash();
+    std::cerr << "Stack " << this << ": default constructed!\n";
     validate();
 }
 
@@ -133,8 +143,9 @@ Stack<T, A>::Stack(const Stack &o) {
     _size = o._size;
     _allocator = o._allocator;
     _data = allocator_traits::allocate(_allocator, _capacity);
-    _cache = compute_cache();
+    _hash = compute_hash();
     std::uninitialized_copy_n(o._data, _size, _data);
+    std::cerr << "Stack " << this << ": copied from " << o << "\n";
 
     validate();
 }
@@ -151,8 +162,9 @@ Stack<T, A> &Stack<T, A>::operator=(const Stack &o) {
     _size = o._size;
     _allocator = o._allocator;
     _data = allocator_traits::allocate(_allocator, _capacity);
-    _cache = compute_cache();
+    _hash = compute_hash();
     std::uninitialized_copy_n(o._data, _size, _data);
+    std::cerr << "Stack " << this << ": copied from " << o << " with assignment\n";
 
     validate();
     return *this;
@@ -166,7 +178,8 @@ Stack<T, A>::Stack(Stack &&o) {
     _capacity = std::exchange(o._capacity, 0);
     _size = std::exchange(o._size, 1);
     _allocator = std::move(o._allocator);
-    _cache = compute_cache();
+    _hash = compute_hash();
+    std::cerr << "Stack " << this << ": moved from " << o << "\n";
 
     validate();
 }
@@ -184,7 +197,8 @@ Stack<T, A> &Stack<T, A>::operator=(Stack &&o) {
     _capacity = std::exchange(o._capacity, 0);
     _size = std::exchange(o._size, 1);
     _allocator = std::move(o._allocator);
-    _cache = compute_cache();
+    _hash = compute_hash();
+    std::cerr << "Stack " << this << ": moved from " << o << " with assignment\n";
 
     validate();
     return *this;
@@ -192,8 +206,12 @@ Stack<T, A> &Stack<T, A>::operator=(Stack &&o) {
 
 template <class T, class A>
 Stack<T, A>::~Stack() {
-    if (valid())
+    if (valid()) {
         clear_internal();
+        std::cerr << "Stack " << this << ": destructed correctly\n";
+    } else {
+        std::cerr << "Stack " << this << ": cannot be destructed, because of incorrect state\n";
+    }
 }
 
 template <class T, class A>
@@ -217,7 +235,8 @@ void Stack<T, A>::emplace(Args &&... args) {
     allocator_traits::construct(_allocator, _data + _size,
                                 std::forward<Args>(args)...);
     _size = _size + 1;
-    _cache = compute_cache();
+    _hash = compute_hash();
+    std::cerr << "Stack " << this << ": add element " << _data[_size - 1] << "\n";
     validate();
 }
 
@@ -228,11 +247,11 @@ void Stack<T, A>::pop() {
         throw StackUnderflow{};
 
     _size = _size - 1;
-    _cache = compute_cache();
+    _hash = compute_hash();
+    std::cerr << "Stack " << this << ": pop element " << _data[_size] << "\n";
     allocator_traits::destroy(_allocator, _data + _size);
     if ((double)_size / _capacity < shrink_factor)
         reserve(_size);
-
     validate();
 }
 
@@ -263,10 +282,11 @@ void Stack<T, A>::reserve(std::size_t new_capacity) {
         std::destroy_n(_data, _size);
         allocator_traits::deallocate(_allocator, _data, _capacity);
     }
+    std::cerr << "Stack " << this << ": resized from " << _capacity << " to " << new_capacity << "\n";
     _capacity = new_capacity;
     _size = new_size;
     _data = new_data;
-    _cache = compute_cache();
+    _hash = compute_hash();
     validate();
 }
 
@@ -274,6 +294,7 @@ template <class T, class A>
 void Stack<T, A>::clear() {
     validate();
     clear_internal();
+    std::cerr << "Stack " << this << ": cleared\n";
     validate();
 }
 
@@ -291,7 +312,7 @@ inline bool Stack<T, A>::empty() const {
 template <class T, class A>
 inline bool Stack<T, A>::valid() const {
     return start_canary == canary_value && end_canary == canary_value &&
-           _cache == compute_cache() && _size <= _capacity &&
+           _hash == compute_hash() && _size <= _capacity &&
            ((_capacity == 0 && _data == nullptr) ||
             (_capacity != 0 && _data != nullptr));
 }
@@ -304,7 +325,7 @@ void Stack<T, A>::clear_internal() {
         _data = nullptr;
         _capacity = 0;
         _size = 0; // stack becomes invalid if size > capacity
-        _cache = compute_cache();
+        _hash = compute_hash();
     }
     validate();
 }
@@ -318,11 +339,12 @@ inline void Stack<T, A>::validate() const {
 }
 
 template <class T, class A>
-CacheType Stack<T, A>::compute_cache() const {
-    auto old_cache = _cache;
-    _cache = 0;
-    auto result = cache(*this);
-    _cache = old_cache;
+HashType Stack<T, A>::compute_hash() const {
+    // zero old hash before computation
+    auto old_hash = _hash;
+    _hash = 0;
+    auto result = hash(*this);
+    _hash = old_hash;
     return result;
 }
 
@@ -330,7 +352,7 @@ CacheType Stack<T, A>::compute_cache() const {
 template <class T, class A>
 std::ostream &operator<<(std::ostream &out, const Stack<T, A> &stack) {
     out << "Stack capacity: " << stack._capacity << " size: " << stack._size
-        << " cache: " << stack._cache << " {" << "\n";
+        << " hash: " << stack._hash << " {" << "\n";
     for (auto i = 0u; i < stack._capacity; ++i) {
         out << "  [" << i << "] = ";
         if (i < stack._size)
