@@ -17,5 +17,6 @@ TEST(Hash, LastNotNull) {
     };
     Data data;
     data.values[3] = 0xFF;
-    EXPECT_EQ(static_cast<HashType>(1 * 31 * 31 * 31 * 31 + data.values[3]), hash(data));
+    EXPECT_EQ(static_cast<HashType>(1 * 31 * 31 * 31 * 31 + data.values[3]),
+              hash(data));
 }

@@ -13,7 +13,8 @@ HashType hash(const T &data) {
     std::size_t size = sizeof(data);
     HashType result = 1;
     for (std::size_t i = 0; i < size; ++i)
-        result = hash_factor * result + reinterpret_cast<const HashType *>(&data)[i];
+        result =
+            hash_factor * result + reinterpret_cast<const HashType *>(&data)[i];
     return result;
 }
 

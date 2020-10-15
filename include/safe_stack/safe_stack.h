@@ -164,7 +164,8 @@ Stack<T, A> &Stack<T, A>::operator=(const Stack &o) {
     _data = allocator_traits::allocate(_allocator, _capacity);
     _hash = compute_hash();
     std::uninitialized_copy_n(o._data, _size, _data);
-    std::cerr << "Stack " << this << ": copied from " << o << " with assignment\n";
+    std::cerr << "Stack " << this << ": copied from " << o
+              << " with assignment\n";
 
     validate();
     return *this;
@@ -198,7 +199,8 @@ Stack<T, A> &Stack<T, A>::operator=(Stack &&o) {
     _size = std::exchange(o._size, 1);
     _allocator = std::move(o._allocator);
     _hash = compute_hash();
-    std::cerr << "Stack " << this << ": moved from " << o << " with assignment\n";
+    std::cerr << "Stack " << this << ": moved from " << o
+              << " with assignment\n";
 
     validate();
     return *this;
@@ -210,7 +212,8 @@ Stack<T, A>::~Stack() {
         clear_internal();
         std::cerr << "Stack " << this << ": destructed correctly\n";
     } else {
-        std::cerr << "Stack " << this << ": cannot be destructed, because of incorrect state\n";
+        std::cerr << "Stack " << this
+                  << ": cannot be destructed, because of incorrect state\n";
     }
 }
 
@@ -236,7 +239,8 @@ void Stack<T, A>::emplace(Args &&... args) {
                                 std::forward<Args>(args)...);
     _size = _size + 1;
     _hash = compute_hash();
-    std::cerr << "Stack " << this << ": add element " << _data[_size - 1] << "\n";
+    std::cerr << "Stack " << this << ": add element " << _data[_size - 1]
+              << "\n";
     validate();
 }
 
@@ -282,7 +286,8 @@ void Stack<T, A>::reserve(std::size_t new_capacity) {
         std::destroy_n(_data, _size);
         allocator_traits::deallocate(_allocator, _data, _capacity);
     }
-    std::cerr << "Stack " << this << ": resized from " << _capacity << " to " << new_capacity << "\n";
+    std::cerr << "Stack " << this << ": resized from " << _capacity << " to "
+              << new_capacity << "\n";
     _capacity = new_capacity;
     _size = new_size;
     _data = new_data;
@@ -351,7 +356,8 @@ HashType Stack<T, A>::compute_hash() const {
 template <class T, class A>
 std::ostream &operator<<(std::ostream &out, const Stack<T, A> &stack) {
     out << "Stack capacity: " << stack._capacity << " size: " << stack._size
-        << " hash: " << static_cast<int>(stack._hash) << " {" << "\n";
+        << " hash: " << static_cast<int>(stack._hash) << " {"
+        << "\n";
     for (auto i = 0u; i < stack._capacity; ++i) {
         out << "  [" << i << "] = ";
         if (i < stack._size)
