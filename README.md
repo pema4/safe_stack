@@ -12,6 +12,21 @@ operation.
 (`size` becomes bigger than `capacity`). Any operation on invalid object
 throws exception.
 
+## Structure
+
+* app/ - Applications (each application has it's own `main` function)
+  * main.cpp - Main application
+* docs/ - Documentation pages
+  * mainpage.md - Documentation main page
+* extern/ - external libraries (i.e. googletest)
+* include/ - header files
+  * safe_stack/ - safe stack header files
+    * hash.h - small library for computing object's hash
+    * safe_stack.h - stack class definition, exception types and helper functions
+* test/ - program tests
+  * hash_test.cpp - tests for hash function
+  * safe_stack_test.cpp - tests for stack
+
 ## How to build
 
 I used Ubuntu 20.04 on WSL
