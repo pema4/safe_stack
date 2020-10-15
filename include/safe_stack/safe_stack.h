@@ -267,7 +267,7 @@ T &Stack<T, A>::top() {
 template <class T, class A>
 const T &Stack<T, A>::top() const {
     return top();
-};
+}
 
 template <class T, class A>
 void Stack<T, A>::reserve(std::size_t new_capacity) {
@@ -302,12 +302,12 @@ template <class T, class A>
 std::size_t Stack<T, A>::size() const {
     validate();
     return _size;
-};
+}
 
 template <class T, class A>
 inline bool Stack<T, A>::empty() const {
     return size() == 0;
-};
+}
 
 template <class T, class A>
 inline bool Stack<T, A>::valid() const {
@@ -351,7 +351,7 @@ HashType Stack<T, A>::compute_hash() const {
 template <class T, class A>
 std::ostream &operator<<(std::ostream &out, const Stack<T, A> &stack) {
     out << "Stack capacity: " << stack._capacity << " size: " << stack._size
-        << " hash: " << stack._hash << " {" << "\n";
+        << " hash: " << static_cast<int>(stack._hash) << " {" << "\n";
     for (auto i = 0u; i < stack._capacity; ++i) {
         out << "  [" << i << "] = ";
         if (i < stack._size)
