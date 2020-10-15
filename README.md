@@ -1,14 +1,20 @@
 # Safe Stack.
+
 ## Homework #3. for ISP RAS course.
 
-**This is NOT a final version, I will add more documentation, tests and checks**
+Stack with memory protection mechanisms
 
-Not done yet:
-* debug dumps
+1. Every operation can fail (and throw corresponding exception).
+2. Stack has canaries before and after it's fields.
+2. Stack calculates checksum of its fields and checks it before every
+operation.
+3. If object is moved out to a new place, it is marked as invalid
+(`size` becomes bigger than `capacity`). Any operation on invalid object
+throws exception.
 
 ## How to build
 
-I used Ubuntu 20.04 within WSL
+I used Ubuntu 20.04 on WSL
 
 ```bash
 git clone --recursive https://github.com/pema4/safe_stack
