@@ -84,6 +84,20 @@ TEST(SafeStack, PushOneElement) {
     EXPECT_EQ(42, s.top());
 }
 
+TEST(SafeStack, ManyElements) {
+    Stack<int> s;
+    for (int i = 0; i < 100; ++i)
+        s.push(i);
+    auto expected_element = 99;
+    while (!s.empty()) {
+        auto last_element = s.top();
+        EXPECT_EQ(expected_element, last_element);
+        EXPECT_EQ(expected_element + 1, s.size());
+        s.pop();
+        --expected_element;
+    }
+}
+
 TEST(Corruption, FillWithZeros) {
     Stack<int> s;
     EXPECT_TRUE(s.empty());
