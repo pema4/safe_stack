@@ -348,7 +348,6 @@ HashType Stack<T, A>::compute_hash() const {
     return result;
 }
 
-
 template <class T, class A>
 std::ostream &operator<<(std::ostream &out, const Stack<T, A> &stack) {
     out << "Stack capacity: " << stack._capacity << " size: " << stack._size

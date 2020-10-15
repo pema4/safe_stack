@@ -1,10 +1,13 @@
 #include <cstddef>
 namespace safe_stack {
 
+/// \brief Data type of the hash (currently only one byte)
 using HashType = unsigned char;
 
+/// \brief Multiplier for every next operation of the hash algorithm
 constexpr HashType hash_factor = 31;
 
+/// \brief Computes a hash of the arbitrary value.
 template <class T>
 HashType hash(const T &data) {
     std::size_t size = sizeof(data);
@@ -13,5 +16,5 @@ HashType hash(const T &data) {
         result = hash_factor * result + reinterpret_cast<const HashType *>(&data)[i];
     return result;
 }
-// 0 0 0 0 0 F 0 0
+
 } // namespace safe_stack
